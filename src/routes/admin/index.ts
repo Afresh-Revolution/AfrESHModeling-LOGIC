@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { adminPreHandler } from "../../auth/adminPreHandler.js";
 import { registerAdminApplicationsRoutes } from "./applications.js";
 import { registerAdminEditorialRoutes } from "./editorial.js";
+import { registerAdminHireModelsRoutes } from "./hireModels.js";
 import { registerAdminRosterRoutes } from "./roster.js";
 import { registerAdminSiteMetricsRoutes } from "./siteMetrics.js";
 
@@ -14,6 +15,9 @@ export async function registerAdminRoutes(fastify: FastifyInstance) {
   await fastify.register(registerAdminRosterRoutes, { prefix: "/roster" });
   await fastify.register(registerAdminEditorialRoutes, {
     prefix: "/editorial",
+  });
+  await fastify.register(registerAdminHireModelsRoutes, {
+    prefix: "/hire-models",
   });
   await fastify.register(registerAdminSiteMetricsRoutes, {
     prefix: "/site-metrics",

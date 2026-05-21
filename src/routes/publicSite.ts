@@ -44,6 +44,25 @@ export async function registerPublicSiteRoutes(fastify: FastifyInstance) {
   );
 
   fastify.get(
+    "/hire-models",
+    { config: { rateLimit: { max: 300, timeWindow: "1 minute" } } },
+    async (_request, reply) => {
+      try {
+        const pool = getPool();
+        const { rows } = await pool.query(
+          `SELECT id::text, name, image_url, video_url, accomplishments, sort_order
+           FROM hire_models
+           ORDER BY sort_order ASC NULLS LAST, name ASC`
+        );
+        return reply.send({ hire_models: rows });
+      } catch (e) {
+        console.error(e);
+        return reply.status(500).send({ error: "Could not load hire models" });
+      }
+    }
+  );
+
+  fastify.get(
     "/metrics",
     { config: { rateLimit: { max: 300, timeWindow: "1 minute" } } },
     async (_request, reply) => {

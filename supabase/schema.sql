@@ -1,4 +1,4 @@
--- ONYXX CLUB — standard PostgreSQL (Supabase SQL editor, psql, etc.).
+-- AfrESH Modeling — standard PostgreSQL (Supabase SQL editor, psql, etc.).
 -- Requires: gen_random_uuid() (PostgreSQL 13+, or extension pgcrypto on older versions).
 
 -- ---------------------------------------------------------------------------
@@ -64,6 +64,26 @@ alter table public.editorial
     or nullif(trim(coalesce(video_url, '')), '') is not null
   );
 
+create table if not exists public.hire_models (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  image_url text,
+  video_url text,
+  accomplishments text not null default '',
+  sort_order int not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.hire_models
+  drop constraint if exists hire_models_media_required;
+alter table public.hire_models
+  add constraint hire_models_media_required
+  check (
+    nullif(trim(coalesce(image_url, '')), '') is not null
+    or nullif(trim(coalesce(video_url, '')), '') is not null
+  );
+
 create table if not exists public.applications (
   id uuid primary key default gen_random_uuid(),
   full_name text not null,
@@ -82,6 +102,7 @@ create table if not exists public.applications (
 
 alter table public.roster enable row level security;
 alter table public.editorial enable row level security;
+alter table public.hire_models enable row level security;
 alter table public.applications enable row level security;
 
 drop policy if exists "roster_select_public" on public.roster;
@@ -92,8 +113,13 @@ drop policy if exists "editorial_select_public" on public.editorial;
 create policy "editorial_select_public" on public.editorial
   for select using (true);
 
+drop policy if exists "hire_models_select_public" on public.hire_models;
+create policy "hire_models_select_public" on public.hire_models
+  for select using (true);
+
 create index if not exists roster_sort_idx on public.roster (sort_order);
 create index if not exists editorial_sort_idx on public.editorial (sort_order);
+create index if not exists hire_models_sort_idx on public.hire_models (sort_order);
 create index if not exists applications_created_at_idx on public.applications (created_at desc);
 
 create or replace function public.set_updated_at()
@@ -112,4 +138,9 @@ create trigger roster_set_updated_at
 drop trigger if exists editorial_set_updated_at on public.editorial;
 create trigger editorial_set_updated_at
   before update on public.editorial
+  for each row execute procedure public.set_updated_at();
+
+drop trigger if exists hire_models_set_updated_at on public.hire_models;
+create trigger hire_models_set_updated_at
+  before update on public.hire_models
   for each row execute procedure public.set_updated_at();

@@ -17,6 +17,22 @@ function parseOrigins(raw: string | undefined): string[] {
   return Array.from(new Set([...ALWAYS_ALLOWED_ORIGINS, ...fromEnv]));
 }
 
+/** Marketing site origin (logo in emails must be an absolute HTTPS URL). */
+function resolvePublicSiteUrl(corsOrigins: string[]): string {
+  const explicit = process.env.PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
+  if (explicit) return explicit;
+
+  const fromNext = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
+  if (fromNext) return fromNext;
+
+  const httpsOrigin = corsOrigins.find(
+    (o) => o.startsWith("https://") && !o.includes("ondigitalocean.app")
+  );
+  if (httpsOrigin) return httpsOrigin;
+
+  return "http://localhost:3000";
+}
+
 /** Same secret the Next app uses for cookie JWT verification (JWT_SECRET or ADMIN_SESSION_SECRET). */
 export const config = {
   port: Number(process.env.PORT ?? 4000),
@@ -26,6 +42,9 @@ export const config = {
     process.env.ADMIN_SESSION_SECRET?.trim() ||
     "",
   corsOrigins: parseOrigins(process.env.CORS_ORIGINS),
+  get publicSiteUrl() {
+    return resolvePublicSiteUrl(this.corsOrigins);
+  },
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME ?? "",
     apiKey: process.env.CLOUDINARY_API_KEY ?? "",
@@ -34,13 +53,15 @@ export const config = {
       process.env.CLOUDINARY_UNSIGNED_UPLOAD_PRESET?.trim() ?? "",
   },
   folders: {
-    applications: `${process.env.CLOUDINARY_UPLOAD_FOLDER ?? "onyxx"}/applications`,
-    roster: `${process.env.CLOUDINARY_UPLOAD_FOLDER ?? "onyxx"}/roster`,
-    editorial: `${process.env.CLOUDINARY_UPLOAD_FOLDER ?? "onyxx"}/editorial`,
+    applications: `${process.env.CLOUDINARY_UPLOAD_FOLDER ?? "afresh"}/applications`,
+    roster: `${process.env.CLOUDINARY_UPLOAD_FOLDER ?? "afresh"}/roster`,
+    editorial: `${process.env.CLOUDINARY_UPLOAD_FOLDER ?? "afresh"}/editorial`,
+    hire_models: `${process.env.CLOUDINARY_UPLOAD_FOLDER ?? "afresh"}/hire-models`,
   },
   resendApiKey: process.env.RESEND_API_KEY?.trim() ?? "",
   resendFrom:
-    process.env.RESEND_FROM?.trim() ?? "ONYXX <noreply@onyxx.club>",
+    process.env.RESEND_FROM?.trim() ??
+    "AfrESH Modeling <freshmodeling@gmail.com>",
 };
 
 export function assertDb() {

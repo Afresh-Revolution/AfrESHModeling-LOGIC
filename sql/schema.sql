@@ -1,5 +1,5 @@
 -- =============================================================================
--- ONYXX — consolidated PostgreSQL schema (standard Postgres 13+; Supabase-compatible)
+-- AfrESH Modeling — consolidated PostgreSQL schema (standard Postgres 13+; Supabase-compatible)
 -- Requires: gen_random_uuid() (built-in PG 13+; else: CREATE EXTENSION IF NOT EXISTS pgcrypto;)
 -- Apply with: psql "$DATABASE_URL" -f sql/schema.sql
 -- =============================================================================
@@ -64,6 +64,29 @@ ALTER TABLE public.editorial
 
 COMMENT ON COLUMN public.editorial.video_url IS
   'HTTPS URL to campaign video after Cloudinary upload (e.g. .../video/upload/...mp4); surfaced on the public site Film section.';
+
+CREATE TABLE IF NOT EXISTS public.hire_models (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  image_url text,
+  video_url text,
+  accomplishments text NOT NULL DEFAULT '',
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.hire_models
+  DROP CONSTRAINT IF EXISTS hire_models_media_required;
+
+ALTER TABLE public.hire_models
+  ADD CONSTRAINT hire_models_media_required CHECK (
+    NULLIF(TRIM(COALESCE(image_url, '')), '') IS NOT NULL
+    OR NULLIF(TRIM(COALESCE(video_url, '')), '') IS NOT NULL
+  );
+
+COMMENT ON COLUMN public.hire_models.accomplishments IS
+  'Career highlights, bookings, and records shown on the public Hiring Models section.';
 
 -- ---------------------------------------------------------------------------
 -- Applications (public apply form + admin API)
@@ -154,6 +177,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ---------------------------------------------------------------------------
 ALTER TABLE public.roster ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.editorial ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hire_models ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.applications ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "roster_select_public" ON public.roster;
@@ -161,6 +185,9 @@ CREATE POLICY "roster_select_public" ON public.roster FOR SELECT USING (true);
 
 DROP POLICY IF EXISTS "editorial_select_public" ON public.editorial;
 CREATE POLICY "editorial_select_public" ON public.editorial FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "hire_models_select_public" ON public.hire_models;
+CREATE POLICY "hire_models_select_public" ON public.hire_models FOR SELECT USING (true);
 
 ALTER TABLE public.site_metrics ENABLE ROW LEVEL SECURITY;
 
@@ -172,6 +199,7 @@ CREATE POLICY "site_metrics_select_public" ON public.site_metrics FOR SELECT USI
 -- ---------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS roster_sort_idx ON public.roster (sort_order);
 CREATE INDEX IF NOT EXISTS editorial_sort_idx ON public.editorial (sort_order);
+CREATE INDEX IF NOT EXISTS hire_models_sort_idx ON public.hire_models (sort_order);
 
 -- ---------------------------------------------------------------------------
 -- updated_at triggers
@@ -195,6 +223,12 @@ CREATE TRIGGER roster_set_updated_at
 DROP TRIGGER IF EXISTS editorial_set_updated_at ON public.editorial;
 CREATE TRIGGER editorial_set_updated_at
   BEFORE UPDATE ON public.editorial
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.set_updated_at();
+
+DROP TRIGGER IF EXISTS hire_models_set_updated_at ON public.hire_models;
+CREATE TRIGGER hire_models_set_updated_at
+  BEFORE UPDATE ON public.hire_models
   FOR EACH ROW
   EXECUTE PROCEDURE public.set_updated_at();
 
