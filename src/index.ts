@@ -64,7 +64,7 @@ async function main() {
   const host = "0.0.0.0";
 
   await fastify.listen({ port, host });
-  console.log(`AfrESH Modeling API (Fastify) listening on http://localhost:${port}`);
+  fastify.log.info(`AfrESH Modeling API listening on http://${host}:${port}`);
 }
 
 main().catch((err) => {

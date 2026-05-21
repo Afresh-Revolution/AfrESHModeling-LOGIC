@@ -1,0 +1,24 @@
+# DigitalOcean App Platform — API (Fastify)
+# Apply: doctl apps update <app-id> --spec .do/app.yaml
+# Or: App → Settings → App Spec → paste / sync from repo
+
+name: afresh-api
+region: fra
+
+services:
+  - name: api
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    build_command: npm install && npm run build
+    run_command: npm start
+    http_port: 8080
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 15
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 5
+    # Set in DO dashboard (or spec envs): DATABASE_URL, JWT_SECRET, CORS_ORIGINS, etc.
+    envs: []

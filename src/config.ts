@@ -5,8 +5,8 @@ import "dotenv/config";
 // can never block the live site from POSTing to /api/applications.
 const ALWAYS_ALLOWED_ORIGINS = [
   "http://localhost:3000",
-  "https://onyxx.club",
-  "https://www.onyxx.club",
+  "https://afreshmodeling.com",
+  "https://www.afreshmodeling.com",
 ];
 
 function parseOrigins(raw: string | undefined): string[] {
