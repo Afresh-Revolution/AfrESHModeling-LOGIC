@@ -2,14 +2,43 @@ import type { FastifyInstance } from "fastify";
 import { uploadImageBuffer } from "../../cloudinary.js";
 import { config } from "../../config.js";
 import { getPool } from "../../db.js";
-import { firstFileNamed, readMultipart } from "../../lib/multipart.js";
+import {
+  parseImageUrlsField,
+  parseImageUrlsJson,
+  rowImageUrls,
+  toDbImageFields,
+} from "../../lib/imageUrls.js";
+import { filesNamed, firstFileNamed, readMultipart } from "../../lib/multipart.js";
+
+function isLikelyHttpUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function uploadImageFiles(
+  files: { buffer: Buffer; mimetype: string }[],
+  folder: string
+): Promise<string[]> {
+  const urls: string[] = [];
+  for (const file of files) {
+    if (!file.buffer?.length) continue;
+    urls.push(await uploadImageBuffer(file.buffer, file.mimetype, folder));
+  }
+  return urls;
+}
+
+const ROSTER_RETURN = `id::text, name, category, image_url, image_urls, sort_order`;
 
 export async function registerAdminRosterRoutes(fastify: FastifyInstance) {
   fastify.get("/", async (_request, reply) => {
     try {
       const pool = getPool();
       const { rows } = await pool.query(
-        `SELECT id::text, name, category, image_url, sort_order, created_at, updated_at
+        `SELECT ${ROSTER_RETURN}, created_at, updated_at
          FROM roster
          ORDER BY sort_order ASC NULLS LAST, name ASC`
       );
@@ -24,39 +53,49 @@ export async function registerAdminRosterRoutes(fastify: FastifyInstance) {
     "/",
     { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
     async (request, reply) => {
-    const { fields, files } = await readMultipart(request);
-    const name = String(fields.name ?? "").trim();
-    const category = String(fields.category ?? "").trim();
-    const sort_order = Number(fields.sort_order ?? 0) || 0;
-    const img = firstFileNamed(files, "image");
+      const { fields, files } = await readMultipart(request);
+      const name = String(fields.name ?? "").trim();
+      const category = String(fields.category ?? "").trim();
+      const sort_order = Number(fields.sort_order ?? 0) || 0;
 
-    if (!name || !category) {
-      return reply.status(400).send({ error: "name and category required" });
-    }
-    if (!img?.buffer?.length) {
-      return reply.status(400).send({ error: "image file required" });
-    }
+      if (!name || !category) {
+        return reply.status(400).send({ error: "name and category required" });
+      }
 
-    try {
-      const image_url = await uploadImageBuffer(
-        img.buffer,
-        img.mimetype,
-        config.folders.roster
-      );
-      const pool = getPool();
-      const { rows } = await pool.query(
-        `INSERT INTO roster (name, category, image_url, sort_order)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id::text, name, category, image_url, sort_order`,
-        [name, category, image_url, sort_order]
-      );
-      return reply.status(201).send({ model: rows[0] });
-    } catch (e) {
-      console.error(e);
-      return reply.status(500).send({
-        error: "Failed to create roster entry",
-      });
-    }
+      const multiFiles = [
+        ...filesNamed(files, "images"),
+        ...filesNamed(files, "image"),
+      ];
+      const manualUrls = parseImageUrlsField(fields);
+      const manualSingle = String(fields.image_url ?? "").trim();
+
+      try {
+        const uploaded = await uploadImageFiles(multiFiles, config.folders.roster);
+        const merged = [
+          ...manualUrls,
+          ...uploaded,
+          ...(manualSingle && isLikelyHttpUrl(manualSingle) ? [manualSingle] : []),
+        ];
+        const { image_url, image_urls } = toDbImageFields(merged);
+
+        if (!image_url) {
+          return reply.status(400).send({ error: "At least one image is required" });
+        }
+
+        const pool = getPool();
+        const { rows } = await pool.query(
+          `INSERT INTO roster (name, category, image_url, image_urls, sort_order)
+         VALUES ($1, $2, $3, $4::jsonb, $5)
+         RETURNING ${ROSTER_RETURN}`,
+          [name, category, image_url, JSON.stringify(image_urls), sort_order]
+        );
+        return reply.status(201).send({ model: rows[0] });
+      } catch (e) {
+        console.error(e);
+        return reply.status(500).send({
+          error: "Failed to create roster entry",
+        });
+      }
     }
   );
 
@@ -66,78 +105,113 @@ export async function registerAdminRosterRoutes(fastify: FastifyInstance) {
     "/:id",
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
     async (request, reply) => {
-    const { id } = request.params;
-    const { fields, files } = await readMultipart(request);
+      const { id } = request.params;
+      const { fields, files } = await readMultipart(request);
 
-    const name =
-      fields.name !== undefined ? String(fields.name).trim() : undefined;
-    const category =
-      fields.category !== undefined ? String(fields.category).trim() : undefined;
-    const sort_order =
-      fields.sort_order !== undefined ? Number(fields.sort_order) : undefined;
-    const image_url_body =
-      fields.image_url !== undefined
-        ? String(fields.image_url).trim()
-        : undefined;
+      const name =
+        fields.name !== undefined ? String(fields.name).trim() : undefined;
+      const category =
+        fields.category !== undefined ? String(fields.category).trim() : undefined;
+      const sort_order =
+        fields.sort_order !== undefined ? Number(fields.sort_order) : undefined;
 
-    const imgFile = firstFileNamed(files, "image");
+      const multiFiles = [
+        ...filesNamed(files, "images"),
+        ...filesNamed(files, "image"),
+      ];
+      const imgFile = firstFileNamed(files, "image");
+      const allUploadFiles =
+        multiFiles.length > 0
+          ? multiFiles
+          : imgFile?.buffer?.length
+            ? [imgFile]
+            : [];
 
-    let image_url: string | undefined = image_url_body;
-    if (imgFile?.buffer?.length) {
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      let i = 1;
+
+      if (name !== undefined) {
+        sets.push(`name = $${i++}`);
+        vals.push(name);
+      }
+      if (category !== undefined) {
+        sets.push(`category = $${i++}`);
+        vals.push(category);
+      }
+      if (sort_order !== undefined && !Number.isNaN(sort_order)) {
+        sets.push(`sort_order = $${i++}`);
+        vals.push(sort_order);
+      }
+
+      const hasImageField =
+        fields.image_urls !== undefined ||
+        fields.image_url !== undefined ||
+        allUploadFiles.length > 0;
+
+      if (hasImageField) {
+        try {
+          const pool = getPool();
+          const existing = await pool.query<{
+            image_url: string;
+            image_urls: unknown;
+          }>(`SELECT image_url, image_urls FROM roster WHERE id = $1::uuid`, [id]);
+          if (!existing.rows.length) {
+            return reply.status(404).send({ error: "Not found" });
+          }
+
+          let urls =
+            fields.image_urls !== undefined
+              ? parseImageUrlsField(fields)
+              : rowImageUrls(existing.rows[0]);
+
+          const manualSingle =
+            fields.image_url !== undefined ? String(fields.image_url).trim() : undefined;
+          if (manualSingle && isLikelyHttpUrl(manualSingle)) {
+            urls = [manualSingle];
+          } else if (manualSingle === "") {
+            urls = [];
+          }
+
+          const uploaded = await uploadImageFiles(allUploadFiles, config.folders.roster);
+          urls = [...urls, ...uploaded];
+
+          const { image_url, image_urls } = toDbImageFields(urls);
+          if (!image_url) {
+            return reply.status(400).send({ error: "At least one image is required" });
+          }
+
+          sets.push(`image_url = $${i++}`);
+          vals.push(image_url);
+          sets.push(`image_urls = $${i++}::jsonb`);
+          vals.push(JSON.stringify(image_urls));
+        } catch (e) {
+          console.error(e);
+          return reply.status(502).send({ error: "Image upload failed" });
+        }
+      }
+
+      if (!sets.length) {
+        return reply.status(400).send({ error: "No fields to update" });
+      }
+
+      sets.push(`updated_at = now()`);
+      vals.push(id);
+      const idPlaceholder = vals.length;
+
       try {
-        image_url = await uploadImageBuffer(
-          imgFile.buffer,
-          imgFile.mimetype,
-          config.folders.roster
+        const pool = getPool();
+        const { rowCount, rows } = await pool.query(
+          `UPDATE roster SET ${sets.join(", ")} WHERE id = $${idPlaceholder}::uuid
+         RETURNING ${ROSTER_RETURN}`,
+          vals
         );
+        if (!rowCount) return reply.status(404).send({ error: "Not found" });
+        return reply.send({ model: rows[0] });
       } catch (e) {
         console.error(e);
-        return reply.status(502).send({ error: "Image upload failed" });
+        return reply.status(500).send({ error: "Update failed" });
       }
-    }
-
-    const sets: string[] = [];
-    const vals: unknown[] = [];
-    let i = 1;
-
-    if (name !== undefined) {
-      sets.push(`name = $${i++}`);
-      vals.push(name);
-    }
-    if (category !== undefined) {
-      sets.push(`category = $${i++}`);
-      vals.push(category);
-    }
-    if (sort_order !== undefined && !Number.isNaN(sort_order)) {
-      sets.push(`sort_order = $${i++}`);
-      vals.push(sort_order);
-    }
-    if (image_url !== undefined && image_url !== "") {
-      sets.push(`image_url = $${i++}`);
-      vals.push(image_url);
-    }
-
-    if (!sets.length) {
-      return reply.status(400).send({ error: "No fields to update" });
-    }
-
-    sets.push(`updated_at = now()`);
-    vals.push(id);
-    const idPlaceholder = vals.length;
-
-    try {
-      const pool = getPool();
-      const { rowCount, rows } = await pool.query(
-        `UPDATE roster SET ${sets.join(", ")} WHERE id = $${idPlaceholder}::uuid
-         RETURNING id::text, name, category, image_url, sort_order`,
-        vals
-      );
-      if (!rowCount) return reply.status(404).send({ error: "Not found" });
-      return reply.send({ model: rows[0] });
-    } catch (e) {
-      console.error(e);
-      return reply.status(500).send({ error: "Update failed" });
-    }
     }
   );
 
@@ -147,19 +221,19 @@ export async function registerAdminRosterRoutes(fastify: FastifyInstance) {
     "/:id",
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
     async (request, reply) => {
-    const { id } = request.params;
-    try {
-      const pool = getPool();
-      const { rowCount } = await pool.query(
-        `DELETE FROM roster WHERE id = $1::uuid`,
-        [id]
-      );
-      if (!rowCount) return reply.status(404).send({ error: "Not found" });
-      return reply.send({ ok: true });
-    } catch (e) {
-      console.error(e);
-      return reply.status(500).send({ error: "Delete failed" });
-    }
+      const { id } = request.params;
+      try {
+        const pool = getPool();
+        const { rowCount } = await pool.query(
+          `DELETE FROM roster WHERE id = $1::uuid`,
+          [id]
+        );
+        if (!rowCount) return reply.status(404).send({ error: "Not found" });
+        return reply.send({ ok: true });
+      } catch (e) {
+        console.error(e);
+        return reply.status(500).send({ error: "Delete failed" });
+      }
     }
   );
 }

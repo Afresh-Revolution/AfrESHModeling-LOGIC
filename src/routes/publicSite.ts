@@ -31,7 +31,7 @@ export async function registerPublicSiteRoutes(fastify: FastifyInstance) {
       try {
         const pool = getPool();
         const { rows } = await pool.query(
-          `SELECT id::text, name, category, image_url, sort_order
+          `SELECT id::text, name, category, image_url, image_urls, sort_order
            FROM roster
            ORDER BY sort_order ASC NULLS LAST, name ASC`
         );
@@ -50,7 +50,7 @@ export async function registerPublicSiteRoutes(fastify: FastifyInstance) {
       try {
         const pool = getPool();
         const { rows } = await pool.query(
-          `SELECT id::text, name, image_url, video_url, accomplishments, sort_order
+          `SELECT id::text, name, image_url, image_urls, video_url, accomplishments, sort_order
            FROM hire_models
            ORDER BY sort_order ASC NULLS LAST, name ASC`
         );

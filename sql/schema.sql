@@ -31,10 +31,23 @@ CREATE TABLE IF NOT EXISTS public.roster (
   name text NOT NULL,
   category text NOT NULL,
   image_url text NOT NULL,
+  image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   sort_order integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.roster ADD COLUMN IF NOT EXISTS image_urls jsonb;
+UPDATE public.roster
+SET image_urls = jsonb_build_array(image_url)
+WHERE image_urls IS NULL
+   OR image_urls = '[]'::jsonb
+   OR jsonb_array_length(image_urls) = 0;
+ALTER TABLE public.roster ALTER COLUMN image_urls SET DEFAULT '[]'::jsonb;
+UPDATE public.roster SET image_urls = '[]'::jsonb WHERE image_urls IS NULL;
+ALTER TABLE public.roster ALTER COLUMN image_urls SET NOT NULL;
+
+COMMENT ON COLUMN public.roster.image_urls IS 'JSON array of image HTTPS URLs; image_url mirrors the first entry.';
 
 CREATE TABLE IF NOT EXISTS public.editorial (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -69,12 +82,29 @@ CREATE TABLE IF NOT EXISTS public.hire_models (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
   image_url text,
+  image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   video_url text,
   accomplishments text NOT NULL DEFAULT '',
   sort_order integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.hire_models ADD COLUMN IF NOT EXISTS image_urls jsonb;
+UPDATE public.hire_models
+SET image_urls = jsonb_build_array(image_url)
+WHERE image_url IS NOT NULL
+  AND TRIM(image_url) <> ''
+  AND (
+    image_urls IS NULL
+    OR image_urls = '[]'::jsonb
+    OR jsonb_array_length(image_urls) = 0
+  );
+ALTER TABLE public.hire_models ALTER COLUMN image_urls SET DEFAULT '[]'::jsonb;
+UPDATE public.hire_models SET image_urls = '[]'::jsonb WHERE image_urls IS NULL;
+ALTER TABLE public.hire_models ALTER COLUMN image_urls SET NOT NULL;
+
+COMMENT ON COLUMN public.hire_models.image_urls IS 'JSON array of profile image URLs; image_url mirrors the first entry.';
 
 ALTER TABLE public.hire_models
   DROP CONSTRAINT IF EXISTS hire_models_media_required;

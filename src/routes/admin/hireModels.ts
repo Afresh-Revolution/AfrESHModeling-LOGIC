@@ -7,6 +7,11 @@ import {
 } from "../../cloudinary.js";
 import { config } from "../../config.js";
 import { getPool } from "../../db.js";
+import {
+  parseImageUrlsField,
+  rowImageUrls,
+  toDbImageFields,
+} from "../../lib/imageUrls.js";
 
 const MAX_VIDEO_SIZE_BYTES = 500 * 1024 * 1024;
 
@@ -21,19 +26,19 @@ function isLikelyHttpUrl(url: string): boolean {
 
 async function readHireModelsMultipart(request: any): Promise<{
   fields: Record<string, string>;
-  image?: { buffer: Buffer; mimetype: string };
+  images: { buffer: Buffer; mimetype: string }[];
   video?: { file: MultipartFile["file"]; mimetype: string };
 }> {
   const fields: Record<string, string> = {};
-  let image: { buffer: Buffer; mimetype: string } | undefined;
+  const images: { buffer: Buffer; mimetype: string }[] = [];
   let video: { file: MultipartFile["file"]; mimetype: string } | undefined;
 
   for await (const part of request.parts()) {
     if (part.type === "file") {
-      if (part.fieldname === "image") {
+      if (part.fieldname === "image" || part.fieldname === "images") {
         const buf = await part.toBuffer();
         if (buf?.length) {
-          image = { buffer: buf, mimetype: part.mimetype || "application/octet-stream" };
+          images.push({ buffer: buf, mimetype: part.mimetype || "application/octet-stream" });
         }
       } else if (part.fieldname === "video") {
         video = { file: part.file, mimetype: part.mimetype || "application/octet-stream" };
@@ -43,8 +48,10 @@ async function readHireModelsMultipart(request: any): Promise<{
     }
   }
 
-  return { fields, image, video };
+  return { fields, images, video };
 }
+
+const HIRE_RETURN = `id::text, name, image_url, image_urls, video_url, accomplishments, sort_order`;
 
 export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
   fastify.get(
@@ -77,7 +84,7 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
     try {
       const pool = getPool();
       const { rows } = await pool.query(
-        `SELECT id::text, name, image_url, video_url, accomplishments, sort_order, created_at, updated_at
+        `SELECT ${HIRE_RETURN}, created_at, updated_at
          FROM hire_models
          ORDER BY sort_order ASC NULLS LAST, name ASC`
       );
@@ -92,10 +99,11 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
     "/",
     { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
     async (request, reply) => {
-      const { fields, image, video } = await readHireModelsMultipart(request);
+      const { fields, images, video } = await readHireModelsMultipart(request);
       const name = String(fields.name ?? "").trim();
       const accomplishments = String(fields.accomplishments ?? "").trim();
       const sort_order = Number(fields.sort_order ?? 0) || 0;
+      const manualUrls = parseImageUrlsField(fields);
       const image_url_body =
         fields.image_url !== undefined ? String(fields.image_url).trim() : "";
       const video_url_body =
@@ -104,12 +112,24 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
       if (!name) {
         return reply.status(400).send({ error: "name required" });
       }
-      if (
-        !image?.buffer?.length &&
-        !video?.file &&
-        !image_url_body &&
-        !video_url_body
-      ) {
+
+      const uploadedUrls: string[] = [];
+      for (const img of images) {
+        uploadedUrls.push(
+          await uploadImageBuffer(img.buffer, img.mimetype, config.folders.hire_models)
+        );
+      }
+      const mergedUrls = [
+        ...manualUrls,
+        ...uploadedUrls,
+        ...(image_url_body && isLikelyHttpUrl(image_url_body) ? [image_url_body] : []),
+      ];
+      const { image_url, image_urls } = toDbImageFields(mergedUrls);
+      const hasImage = !!image_url;
+      const hasVideoUrl = !!(video_url_body && isLikelyHttpUrl(video_url_body));
+      const hasVideoFile = !!video?.file;
+
+      if (!hasImage && !hasVideoFile && !hasVideoUrl) {
         return reply.status(400).send({
           error: "image or video file required (or image_url/video_url)",
         });
@@ -122,18 +142,22 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
       }
 
       try {
-        const image_url = image?.buffer?.length
-          ? await uploadImageBuffer(image.buffer, image.mimetype, config.folders.hire_models)
-          : image_url_body || null;
         const video_url = video?.file
           ? await uploadVideoStream(video.file, video.mimetype, config.folders.hire_models)
           : video_url_body || null;
         const pool = getPool();
         const { rows } = await pool.query(
-          `INSERT INTO hire_models (name, image_url, video_url, accomplishments, sort_order)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING id::text, name, image_url, video_url, accomplishments, sort_order`,
-          [name, image_url, video_url, accomplishments, sort_order]
+          `INSERT INTO hire_models (name, image_url, image_urls, video_url, accomplishments, sort_order)
+           VALUES ($1, $2, $3::jsonb, $4, $5, $6)
+           RETURNING ${HIRE_RETURN}`,
+          [
+            name,
+            image_url || null,
+            JSON.stringify(image_urls),
+            video_url,
+            accomplishments,
+            sort_order,
+          ]
         );
         return reply.status(201).send({ item: rows[0] });
       } catch (e) {
@@ -148,7 +172,7 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
     async (request, reply) => {
       const { id } = request.params;
-      const { fields, image, video } = await readHireModelsMultipart(request);
+      const { fields, images, video } = await readHireModelsMultipart(request);
 
       const name = fields.name !== undefined ? String(fields.name).trim() : undefined;
       const accomplishments =
@@ -164,19 +188,10 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
       const clear_video =
         fields.clear_video !== undefined ? String(fields.clear_video).trim() : "";
 
-      let image_url: string | undefined = image_url_body;
-      if (image?.buffer?.length) {
-        try {
-          image_url = await uploadImageBuffer(
-            image.buffer,
-            image.mimetype,
-            config.folders.hire_models
-          );
-        } catch (e) {
-          console.error(e);
-          return reply.status(502).send({ error: "Image upload failed" });
-        }
-      }
+      const hasImageUpdate =
+        fields.image_urls !== undefined ||
+        fields.image_url !== undefined ||
+        images.length > 0;
 
       let video_url: string | null | undefined = undefined;
       if (clear_video === "1" || clear_video.toLowerCase() === "true") {
@@ -215,9 +230,45 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
         sets.push(`sort_order = $${i++}`);
         vals.push(sort_order);
       }
-      if (image_url !== undefined && image_url !== "") {
-        sets.push(`image_url = $${i++}`);
-        vals.push(image_url);
+      if (hasImageUpdate) {
+        try {
+          const pool = getPool();
+          const existing = await pool.query<{
+            image_url: string | null;
+            image_urls: unknown;
+          }>(`SELECT image_url, image_urls FROM hire_models WHERE id = $1::uuid`, [id]);
+          if (!existing.rows.length) {
+            return reply.status(404).send({ error: "Not found" });
+          }
+
+          let urls =
+            fields.image_urls !== undefined
+              ? parseImageUrlsField(fields)
+              : rowImageUrls(existing.rows[0]);
+
+          if (image_url_body !== undefined) {
+            if (image_url_body && isLikelyHttpUrl(image_url_body)) {
+              urls = [image_url_body];
+            } else {
+              urls = [];
+            }
+          }
+
+          for (const img of images) {
+            urls.push(
+              await uploadImageBuffer(img.buffer, img.mimetype, config.folders.hire_models)
+            );
+          }
+
+          const { image_url, image_urls } = toDbImageFields(urls);
+          sets.push(`image_url = $${i++}`);
+          vals.push(image_url || null);
+          sets.push(`image_urls = $${i++}::jsonb`);
+          vals.push(JSON.stringify(image_urls));
+        } catch (e) {
+          console.error(e);
+          return reply.status(502).send({ error: "Image upload failed" });
+        }
       }
       if (video_url !== undefined) {
         sets.push(`video_url = $${i++}`);
@@ -236,7 +287,7 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
         const pool = getPool();
         const { rowCount, rows } = await pool.query(
           `UPDATE hire_models SET ${sets.join(", ")} WHERE id = $${idPlaceholder}::uuid
-           RETURNING id::text, name, image_url, video_url, accomplishments, sort_order`,
+           RETURNING ${HIRE_RETURN}`,
           vals
         );
         if (!rowCount) return reply.status(404).send({ error: "Not found" });
