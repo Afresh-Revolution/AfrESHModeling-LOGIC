@@ -26,6 +26,9 @@ async function uploadImageFiles(
   const urls: string[] = [];
   for (const file of files) {
     if (!file.buffer?.length) continue;
+    if (!file.mimetype?.toLowerCase().startsWith("image/")) {
+      throw new Error("Invalid image type");
+    }
     urls.push(await uploadImageBuffer(file.buffer, file.mimetype, folder));
   }
   return urls;
@@ -53,7 +56,15 @@ export async function registerAdminRosterRoutes(fastify: FastifyInstance) {
     "/",
     { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
     async (request, reply) => {
-      const { fields, files } = await readMultipart(request);
+      let fields: Record<string, string>;
+      let files: { fieldname: string; buffer: Buffer; mimetype: string }[];
+      try {
+        ({ fields, files } = await readMultipart(request));
+      } catch (e) {
+        return reply.status(400).send({
+          error: e instanceof Error ? e.message : "Invalid multipart payload",
+        });
+      }
       const name = String(fields.name ?? "").trim();
       const category = String(fields.category ?? "").trim();
       const sort_order = Number(fields.sort_order ?? 0) || 0;
@@ -106,7 +117,15 @@ export async function registerAdminRosterRoutes(fastify: FastifyInstance) {
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
     async (request, reply) => {
       const { id } = request.params;
-      const { fields, files } = await readMultipart(request);
+      let fields: Record<string, string>;
+      let files: { fieldname: string; buffer: Buffer; mimetype: string }[];
+      try {
+        ({ fields, files } = await readMultipart(request));
+      } catch (e) {
+        return reply.status(400).send({
+          error: e instanceof Error ? e.message : "Invalid multipart payload",
+        });
+      }
 
       const name =
         fields.name !== undefined ? String(fields.name).trim() : undefined;

@@ -3,8 +3,10 @@ import type { MultipartFile } from "@fastify/multipart";
 import { createUploadSignature, uploadImageBuffer, uploadVideoStream } from "../../cloudinary.js";
 import { config } from "../../config.js";
 import { getPool } from "../../db.js";
+import { readPartBufferWithLimit } from "../../lib/multipart.js";
 
 const MAX_VIDEO_SIZE_BYTES = 500 * 1024 * 1024;
+const MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024;
 
 function isLikelyHttpUrl(url: string): boolean {
   try {
@@ -27,7 +29,10 @@ async function readEditorialMultipart(request: any): Promise<{
   for await (const part of request.parts()) {
     if (part.type === "file") {
       if (part.fieldname === "image") {
-        const buf = await part.toBuffer();
+        if (!part.mimetype?.toLowerCase().startsWith("image/")) {
+          throw new Error("Invalid image type");
+        }
+        const buf = await readPartBufferWithLimit(part, MAX_IMAGE_SIZE_BYTES);
         if (buf?.length) {
           image = { buffer: buf, mimetype: part.mimetype || "application/octet-stream" };
         }
@@ -97,7 +102,16 @@ export async function registerAdminEditorialRoutes(
     "/",
     { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
     async (request, reply) => {
-    const { fields, image, video } = await readEditorialMultipart(request);
+    let fields: Record<string, string>;
+    let image: { buffer: Buffer; mimetype: string } | undefined;
+    let video: { file: MultipartFile["file"]; mimetype: string } | undefined;
+    try {
+      ({ fields, image, video } = await readEditorialMultipart(request));
+    } catch (e) {
+      return reply.status(400).send({
+        error: e instanceof Error ? e.message : "Invalid multipart payload",
+      });
+    }
     const title = String(fields.title ?? "").trim();
     const sort_order = Number(fields.sort_order ?? 0) || 0;
     const image_url_body =
@@ -151,7 +165,16 @@ export async function registerAdminEditorialRoutes(
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
     async (request, reply) => {
     const { id } = request.params;
-    const { fields, image, video } = await readEditorialMultipart(request);
+    let fields: Record<string, string>;
+    let image: { buffer: Buffer; mimetype: string } | undefined;
+    let video: { file: MultipartFile["file"]; mimetype: string } | undefined;
+    try {
+      ({ fields, image, video } = await readEditorialMultipart(request));
+    } catch (e) {
+      return reply.status(400).send({
+        error: e instanceof Error ? e.message : "Invalid multipart payload",
+      });
+    }
 
     const title =
       fields.title !== undefined ? String(fields.title).trim() : undefined;

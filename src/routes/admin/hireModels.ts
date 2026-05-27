@@ -12,8 +12,10 @@ import {
   rowImageUrls,
   toDbImageFields,
 } from "../../lib/imageUrls.js";
+import { readPartBufferWithLimit } from "../../lib/multipart.js";
 
 const MAX_VIDEO_SIZE_BYTES = 500 * 1024 * 1024;
+const MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024;
 
 function isLikelyHttpUrl(url: string): boolean {
   try {
@@ -36,7 +38,10 @@ async function readHireModelsMultipart(request: any): Promise<{
   for await (const part of request.parts()) {
     if (part.type === "file") {
       if (part.fieldname === "image" || part.fieldname === "images") {
-        const buf = await part.toBuffer();
+        if (!part.mimetype?.toLowerCase().startsWith("image/")) {
+          throw new Error("Invalid image type");
+        }
+        const buf = await readPartBufferWithLimit(part, MAX_IMAGE_SIZE_BYTES);
         if (buf?.length) {
           images.push({ buffer: buf, mimetype: part.mimetype || "application/octet-stream" });
         }
@@ -99,7 +104,16 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
     "/",
     { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
     async (request, reply) => {
-      const { fields, images, video } = await readHireModelsMultipart(request);
+      let fields: Record<string, string>;
+      let images: { buffer: Buffer; mimetype: string }[];
+      let video: { file: MultipartFile["file"]; mimetype: string } | undefined;
+      try {
+        ({ fields, images, video } = await readHireModelsMultipart(request));
+      } catch (e) {
+        return reply.status(400).send({
+          error: e instanceof Error ? e.message : "Invalid multipart payload",
+        });
+      }
       const name = String(fields.name ?? "").trim();
       const accomplishments = String(fields.accomplishments ?? "").trim();
       const sort_order = Number(fields.sort_order ?? 0) || 0;
@@ -172,7 +186,16 @@ export async function registerAdminHireModelsRoutes(fastify: FastifyInstance) {
     { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
     async (request, reply) => {
       const { id } = request.params;
-      const { fields, images, video } = await readHireModelsMultipart(request);
+      let fields: Record<string, string>;
+      let images: { buffer: Buffer; mimetype: string }[];
+      let video: { file: MultipartFile["file"]; mimetype: string } | undefined;
+      try {
+        ({ fields, images, video } = await readHireModelsMultipart(request));
+      } catch (e) {
+        return reply.status(400).send({
+          error: e instanceof Error ? e.message : "Invalid multipart payload",
+        });
+      }
 
       const name = fields.name !== undefined ? String(fields.name).trim() : undefined;
       const accomplishments =

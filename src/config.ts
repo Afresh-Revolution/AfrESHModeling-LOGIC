@@ -38,6 +38,7 @@ function resolvePublicSiteUrl(corsOrigins: string[]): string {
 export const config = {
   port: Number(process.env.PORT ?? 4000),
   databaseUrl: process.env.DATABASE_URL ?? "",
+  trustProxy: process.env.TRUST_PROXY?.trim().toLowerCase() === "true",
   jwtSecret:
     process.env.JWT_SECRET?.trim() ||
     process.env.ADMIN_SESSION_SECRET?.trim() ||

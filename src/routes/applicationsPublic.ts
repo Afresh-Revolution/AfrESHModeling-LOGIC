@@ -25,7 +25,15 @@ export async function registerApplicationsPublicRoutes(
     "/",
     { config: { rateLimit: { max: 20, timeWindow: "1 hour" } } },
     async (request, reply) => {
-    const { fields, files } = await readMultipart(request);
+    let fields: Record<string, string>;
+    let files: { fieldname: string; buffer: Buffer; mimetype: string }[];
+    try {
+      ({ fields, files } = await readMultipart(request));
+    } catch (e) {
+      return reply.status(400).send({
+        error: e instanceof Error ? e.message : "Invalid multipart payload",
+      });
+    }
 
     const full_name = String(fields.full_name ?? "").trim();
     const email = String(fields.email ?? "").trim().toLowerCase();

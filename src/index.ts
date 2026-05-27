@@ -13,7 +13,8 @@ import { registerPublicSiteRoutes } from "./routes/publicSite.js";
 async function main() {
   const fastify = Fastify({
     logger: true,
-    trustProxy: true,
+    // Avoid blindly trusting X-Forwarded-* headers unless explicitly enabled.
+    trustProxy: config.trustProxy,
   });
 
   await fastify.register(helmet, {

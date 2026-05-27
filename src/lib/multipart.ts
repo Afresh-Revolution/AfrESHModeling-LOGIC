@@ -1,10 +1,38 @@
 import type { FastifyRequest } from "fastify";
+import type { MultipartFile } from "@fastify/multipart";
 
 export type ParsedFile = {
   fieldname: string;
   buffer: Buffer;
   mimetype: string;
 };
+
+const DEFAULT_BUFFERED_FILE_LIMIT_BYTES = 15 * 1024 * 1024;
+
+async function readPartBufferWithLimit(
+  part: MultipartFile,
+  maxBytes: number
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  try {
+    for await (const chunk of part.file) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buf.length;
+      if (total > maxBytes) {
+        part.file.destroy();
+        throw new Error(`File too large (max ${Math.floor(maxBytes / (1024 * 1024))}MB)`);
+      }
+      chunks.push(buf);
+    }
+  } catch (e) {
+    if (e instanceof Error) throw e;
+    throw new Error("Failed to read multipart file");
+  }
+
+  return Buffer.concat(chunks, total);
+}
 
 /** Consume full multipart body (fields + files). */
 export async function readMultipart(request: FastifyRequest): Promise<{
@@ -16,7 +44,10 @@ export async function readMultipart(request: FastifyRequest): Promise<{
 
   for await (const part of request.parts()) {
     if (part.type === "file") {
-      const buffer = await part.toBuffer();
+      const buffer = await readPartBufferWithLimit(
+        part,
+        DEFAULT_BUFFERED_FILE_LIMIT_BYTES
+      );
       files.push({
         fieldname: part.fieldname,
         buffer,
@@ -40,3 +71,5 @@ export function firstFileNamed(
 ): ParsedFile | undefined {
   return files.find((f) => f.fieldname === name);
 }
+
+export { readPartBufferWithLimit };
