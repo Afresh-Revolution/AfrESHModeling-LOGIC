@@ -3,6 +3,7 @@ import { adminPreHandler } from "../../auth/adminPreHandler.js";
 import { registerAdminApplicationsRoutes } from "./applications.js";
 import { registerAdminEditorialRoutes } from "./editorial.js";
 import { registerAdminHireModelsRoutes } from "./hireModels.js";
+import { registerAdminLandingContentRoutes } from "./landingContent.js";
 import { registerAdminRosterRoutes } from "./roster.js";
 import { registerAdminSiteMetricsRoutes } from "./siteMetrics.js";
 
@@ -21,5 +22,11 @@ export async function registerAdminRoutes(fastify: FastifyInstance) {
   });
   await fastify.register(registerAdminSiteMetricsRoutes, {
     prefix: "/site-metrics",
+  });
+  await fastify.register(registerAdminLandingContentRoutes, {
+    prefix: "/landing-content",
+  });
+  await fastify.register(registerAdminLandingContentRoutes, {
+    prefix: "/landing",
   });
 }
