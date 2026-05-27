@@ -44,7 +44,7 @@ const DEFAULT_CONTENT: Record<string, string> = {
   footer_brand_description:
     "Redefining the modeling industry through data-driven talent development and uncompromising standards of elegance.",
   footer_contact_location: "Jos, Nigeria",
-  footer_contact_email: "afreshmodeling@gmail.com",
+  footer_contact_email: "info@afreshmodeling.com",
   footer_apply_button: "Apply Now",
   footer_portfolio_button: "View Portfolio",
   footer_contact_button: "Contact Us",
