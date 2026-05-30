@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { getPool } from "../db.js";
+import { loadLandingContentRow } from "../lib/landingContentStore.js";
 
 /**
  * Read-only JSON for the Next.js marketing site (same shape as legacy `/api/editorial` + `/api/roster`).
@@ -58,6 +59,24 @@ export async function registerPublicSiteRoutes(fastify: FastifyInstance) {
       } catch (e) {
         console.error(e);
         return reply.status(500).send({ error: "Could not load hire models" });
+      }
+    }
+  );
+
+  fastify.get(
+    "/landing-content",
+    { config: { rateLimit: { max: 300, timeWindow: "1 minute" } } },
+    async (_request, reply) => {
+      try {
+        const pool = getPool();
+        const landing = await loadLandingContentRow(pool);
+        if (!landing) {
+          return reply.status(503).send({ error: "Landing content not configured" });
+        }
+        return reply.send({ landing_content: landing });
+      } catch (e) {
+        console.error(e);
+        return reply.status(500).send({ error: "Could not load landing content" });
       }
     }
   );

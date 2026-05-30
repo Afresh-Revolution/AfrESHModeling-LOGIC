@@ -1,7 +1,16 @@
 -- =============================================================================
 -- AfrESH Modeling — consolidated PostgreSQL schema (standard Postgres 13+; Supabase-compatible)
 -- Requires: gen_random_uuid() (built-in PG 13+; else: CREATE EXTENSION IF NOT EXISTS pgcrypto;)
--- Apply with: psql "$DATABASE_URL" -f sql/schema.sql
+--
+-- Apply (fresh or existing DB): psql "$DATABASE_URL" -f sql/schema.sql
+--
+-- Safe to re-run on a live database — this file is idempotent:
+--   • CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS — skips existing objects
+--   • INSERT … ON CONFLICT DO NOTHING — never overwrites existing rows (admin_users,
+--     site_metrics, landing_content)
+--   • UPDATE backfills only NULL or empty jsonb arrays — never replaces populated data
+--   • DROP … IF EXISTS before policies, constraints, triggers — reapplies definitions
+--   • No TRUNCATE, DELETE, or DROP TABLE
 -- =============================================================================
 
 SET client_min_messages = WARNING;
@@ -159,6 +168,10 @@ ALTER TABLE public.applications ADD COLUMN IF NOT EXISTS updated_at timestamptz;
 UPDATE public.applications SET photo_urls = '[]'::jsonb WHERE photo_urls IS NULL;
 ALTER TABLE public.applications ALTER COLUMN photo_urls SET DEFAULT '[]'::jsonb;
 
+UPDATE public.applications
+SET updated_at = created_at
+WHERE updated_at IS NULL AND created_at IS NOT NULL;
+
 COMMENT ON COLUMN public.applications.message IS 'Tell us about yourself (public apply form).';
 COMMENT ON COLUMN public.applications.interview_at IS 'Scheduled interview when status is shortlisted.';
 COMMENT ON COLUMN public.applications.photo_urls IS 'JSON array of image HTTPS URLs (e.g. Cloudinary).';
@@ -172,7 +185,7 @@ CREATE INDEX IF NOT EXISTS applications_email_idx ON public.applications (email)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.site_metrics (
   id smallint PRIMARY KEY CHECK (id = 1),
-  total_earnings_display text NOT NULL DEFAULT '$4.2M',
+  total_earnings_display text NOT NULL DEFAULT '₦6.5B',
   brand_partnerships integer NOT NULL DEFAULT 87,
   countries_placements integer NOT NULL DEFAULT 32,
   models_represented integer NOT NULL DEFAULT 250,
@@ -203,6 +216,62 @@ INSERT INTO public.site_metrics (id) VALUES (1)
 ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
+-- Landing page copy (singleton row id = 1; admin-editable JSON)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.landing_content (
+  id smallint PRIMARY KEY CHECK (id = 1),
+  content jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO public.landing_content (id, content)
+VALUES (
+  1,
+  jsonb_build_object(
+    'hero_badge', 'Now Accepting Applications',
+    'hero_title_prefix', 'AfrESH',
+    'hero_title_highlight', 'Modeling',
+    'hero_subtitle', 'Where Elegance Meets Excellence',
+    'hero_primary_cta', 'View Our Talent',
+    'hero_secondary_cta', 'Apply Now',
+    'models_section_label', 'Featured Talent',
+    'models_section_title', 'Our Roster',
+    'models_section_description', 'Discover the faces that define AfrESH Modeling — each selected for their unique presence and professional drive.',
+    'ecosystem_section_label', 'Our Process',
+    'ecosystem_section_title', 'The AfrESH Modeling Ecosystem',
+    'ecosystem_section_description', 'A scientifically structured pipeline that transforms raw potential into industry-leading talent.',
+    'data_section_label', 'Performance Metrics',
+    'data_section_title', 'By The Numbers',
+    'data_section_description', 'Data-driven results that validate our approach to model development and market placement.',
+    'apply_section_label', 'Open Call',
+    'apply_section_title', 'Become Part of AfrESH Modeling',
+    'apply_section_description', 'We are always looking for extraordinary individuals. Submit your application below.',
+    'apply_requirements_title', 'What We Look For',
+    'apply_requirements_intro', 'AfrESH Modeling represents a curated selection of talent. Our scouting process is both intuitive and analytical, seeking individuals who bring something unmistakable to the industry.',
+    'apply_requirement_1', 'Height preference: 5''8" and above for women, 6''0" and above for men',
+    'apply_requirement_2', 'Strong facial bone structure and unique features',
+    'apply_requirement_3', 'Professional attitude and reliability',
+    'apply_requirement_4', 'No prior experience required — we develop raw talent',
+    'apply_requirement_5', 'Must be 16 years or older to apply',
+    'apply_requirement_6', 'Open to all ethnicities, body types within our diverse categories',
+    'gallery_section_label', 'Editorial',
+    'gallery_section_title', 'Recent Campaigns',
+    'gallery_section_description', 'A glimpse into the campaigns and editorial work produced through the AfrESH Modeling ecosystem.',
+    'footer_brand_description', 'Redefining the modeling industry through data-driven talent development and uncompromising standards of elegance.',
+    'footer_contact_location', 'Jos, Nigeria',
+    'footer_contact_email', 'afreshmodeling@gmail.com',
+    'footer_apply_button', 'Apply Now',
+    'footer_portfolio_button', 'View Portfolio',
+    'footer_contact_button', 'Contact Us',
+    'footer_copyright_year', '2026',
+    'footer_copyright_text', 'AfrESH Modeling. All rights reserved.'
+  )
+)
+ON CONFLICT (id) DO NOTHING;
+
+COMMENT ON TABLE public.landing_content IS 'Singleton homepage copy; content JSON is edited via admin API.';
+
+-- ---------------------------------------------------------------------------
 -- Row level security (Supabase: anon uses policies; direct Postgres role may bypass)
 -- ---------------------------------------------------------------------------
 ALTER TABLE public.roster ENABLE ROW LEVEL SECURITY;
@@ -223,6 +292,11 @@ ALTER TABLE public.site_metrics ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "site_metrics_select_public" ON public.site_metrics;
 CREATE POLICY "site_metrics_select_public" ON public.site_metrics FOR SELECT USING (true);
+
+ALTER TABLE public.landing_content ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "landing_content_select_public" ON public.landing_content;
+CREATE POLICY "landing_content_select_public" ON public.landing_content FOR SELECT USING (true);
 
 -- ---------------------------------------------------------------------------
 -- Indexes (sort order)
@@ -273,3 +347,15 @@ CREATE TRIGGER site_metrics_set_updated_at
   BEFORE UPDATE ON public.site_metrics
   FOR EACH ROW
   EXECUTE PROCEDURE public.set_updated_at();
+
+DROP TRIGGER IF EXISTS landing_content_set_updated_at ON public.landing_content;
+CREATE TRIGGER landing_content_set_updated_at
+  BEFORE UPDATE ON public.landing_content
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.set_updated_at();
+
+-- One-time currency display migration (USD placeholder -> Naira).
+UPDATE public.site_metrics
+SET total_earnings_display = '₦6.5B'
+WHERE id = 1
+  AND total_earnings_display IN ('$4.2M', '$4.2m', '4.2M', '4.2m');
