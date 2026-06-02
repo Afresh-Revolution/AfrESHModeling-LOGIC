@@ -63,12 +63,12 @@ export const config = {
   resendApiKey: process.env.RESEND_API_KEY?.trim() ?? "",
   resendFrom:
     process.env.RESEND_FROM?.trim() ??
-    "AfrESH Modeling <freshmodeling@gmail.com>",
+    "AfrESH Modeling <afreshmodeling@gmail.com>",
 };
 
 export function assertDb() {
   if (!config.databaseUrl) {
-    throw new Error("DATABASE_URL is required");
+    throw new Error("storage is required");
   }
 }
 

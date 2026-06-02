@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { getPool } from "../../db.js";
 import {
+  sendAcceptedEmail,
+  sendDeniedEmail,
   sendRejectedEmail,
   sendShortlistedEmail,
 } from "../../lib/emailApplicants.js";
@@ -10,8 +12,19 @@ const ALLOWED_STATUSES = [
   "reviewed",
   "shortlisted",
   "rejected",
+  "accepted",
+  "denied",
   "archived",
 ] as const;
+
+const EMAIL_ON_STATUS: Partial<
+  Record<(typeof ALLOWED_STATUSES)[number], "shortlisted" | "rejected" | "accepted" | "denied">
+> = {
+  shortlisted: "shortlisted",
+  rejected: "rejected",
+  accepted: "accepted",
+  denied: "denied",
+};
 
 function formatDateOnly(v: unknown): string | null {
   if (v == null) return null;
@@ -149,28 +162,24 @@ export async function registerAdminApplicationsRoutes(
         const statusChanged = before.status !== status;
 
         let emailError: string | undefined;
-        if (statusChanged && status === "shortlisted" && interviewAtIso) {
+        const emailKind = EMAIL_ON_STATUS[status as (typeof ALLOWED_STATUSES)[number]];
+        if (statusChanged && emailKind) {
           try {
-            await sendShortlistedEmail({
-              to: String(row.email),
-              name: String(row.full_name),
-              interviewAtIso,
-            });
+            const to = String(row.email);
+            const name = String(row.full_name);
+            if (emailKind === "shortlisted" && interviewAtIso) {
+              await sendShortlistedEmail({ to, name, interviewAtIso });
+            } else if (emailKind === "rejected") {
+              await sendRejectedEmail({ to, name });
+            } else if (emailKind === "accepted") {
+              await sendAcceptedEmail({ to, name });
+            } else if (emailKind === "denied") {
+              await sendDeniedEmail({ to, name });
+            }
           } catch (err) {
-            console.error("Shortlisted email failed:", err);
+            console.error(`${emailKind} email failed:`, err);
             emailError =
-              "Status saved, but the shortlisted email could not be sent. Check RESEND_API_KEY and domain verification.";
-          }
-        } else if (statusChanged && status === "rejected") {
-          try {
-            await sendRejectedEmail({
-              to: String(row.email),
-              name: String(row.full_name),
-            });
-          } catch (err) {
-            console.error("Rejected email failed:", err);
-            emailError =
-              "Status saved, but the rejection email could not be sent. Check RESEND_API_KEY and domain verification.";
+              "The status was saved, but we could not email the applicant. Try again later or contact them directly.";
           }
         }
 

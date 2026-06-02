@@ -153,6 +153,8 @@ CREATE TABLE IF NOT EXISTS public.applications (
         'reviewed'::text,
         'shortlisted'::text,
         'rejected'::text,
+        'accepted'::text,
+        'denied'::text,
         'archived'::text
       ]
     )
@@ -174,6 +176,7 @@ WHERE updated_at IS NULL AND created_at IS NOT NULL;
 
 COMMENT ON COLUMN public.applications.message IS 'Tell us about yourself (public apply form).';
 COMMENT ON COLUMN public.applications.interview_at IS 'Scheduled interview when status is shortlisted.';
+COMMENT ON COLUMN public.applications.status IS 'new | reviewed | shortlisted | rejected | accepted | denied | archived';
 COMMENT ON COLUMN public.applications.photo_urls IS 'JSON array of image HTTPS URLs (e.g. Cloudinary).';
 
 CREATE INDEX IF NOT EXISTS applications_created_at_idx ON public.applications (created_at DESC);
@@ -359,3 +362,19 @@ UPDATE public.site_metrics
 SET total_earnings_display = '₦6.5B'
 WHERE id = 1
   AND total_earnings_display IN ('$4.2M', '$4.2m', '4.2M', '4.2m');
+
+-- Allow accepted / denied application statuses (post-audition outcomes).
+ALTER TABLE public.applications DROP CONSTRAINT IF EXISTS applications_status_check;
+ALTER TABLE public.applications ADD CONSTRAINT applications_status_check CHECK (
+  status = ANY (
+    ARRAY[
+      'new'::text,
+      'reviewed'::text,
+      'shortlisted'::text,
+      'rejected'::text,
+      'accepted'::text,
+      'denied'::text,
+      'archived'::text
+    ]
+  )
+);
