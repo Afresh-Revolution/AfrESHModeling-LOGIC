@@ -25,8 +25,8 @@ export async function adminPreHandler(
       new TextEncoder().encode(config.jwtSecret),
       {
         algorithms: ["HS256"],
-        issuer: "onyxx-backend",
-        audience: "onyxx-admin",
+        issuer: "afreshmodeling-logic",
+        audience: "afreshmodeling-admin",
       }
     );
     if (payload.role !== "admin") {
