@@ -61,9 +61,10 @@ export const config = {
     hire_models: `${process.env.CLOUDINARY_UPLOAD_FOLDER ?? "afresh"}/hire-models`,
   },
   resendApiKey: process.env.RESEND_API_KEY?.trim() ?? "",
+  contactEmail: "info@afreshmodeling.com",
   resendFrom:
     process.env.RESEND_FROM?.trim() ??
-    "AfrESH Modeling <afreshmodeling@gmail.com>",
+    "AfrESH Modeling <info@afreshmodeling.com>",
 };
 
 export function assertDb() {

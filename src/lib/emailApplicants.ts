@@ -50,6 +50,7 @@ export async function sendShortlistedEmail(opts: {
     `;
   const { error } = await r.emails.send({
     from: config.resendFrom,
+    replyTo: config.contactEmail,
     to: opts.to,
     subject: "AfrESH Modeling — You're shortlisted",
     html: wrapApplicantEmailHtml(body),
@@ -70,6 +71,7 @@ export async function sendRejectedEmail(opts: {
     `;
   const { error } = await r.emails.send({
     from: config.resendFrom,
+    replyTo: config.contactEmail,
     to: opts.to,
     subject: "AfrESH Modeling — Application update",
     html: wrapApplicantEmailHtml(body),
@@ -91,6 +93,7 @@ export async function sendAcceptedEmail(opts: {
     `;
   const { error } = await r.emails.send({
     from: config.resendFrom,
+    replyTo: config.contactEmail,
     to: opts.to,
     subject: "AfrESH Modeling — Welcome to the agency",
     html: wrapApplicantEmailHtml(body),
@@ -112,6 +115,7 @@ export async function sendDeniedEmail(opts: {
     `;
   const { error } = await r.emails.send({
     from: config.resendFrom,
+    replyTo: config.contactEmail,
     to: opts.to,
     subject: "AfrESH Modeling — Audition outcome",
     html: wrapApplicantEmailHtml(body),

@@ -46,7 +46,7 @@ export function wrapApplicantEmailHtml(bodyHtml: string): string {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
     <tr>
       <td align="center" style="padding:0 20px 32px;font-size:12px;color:#888;">
-        ${BRAND_NAME} · <a href="mailto:freshmodeling@gmail.com" style="color:#c9a84c;text-decoration:none;">freshmodeling@gmail.com</a>
+        ${BRAND_NAME} · <a href="mailto:${config.contactEmail}" style="color:#c9a84c;text-decoration:none;">${config.contactEmail}</a>
       </td>
     </tr>
   </table>

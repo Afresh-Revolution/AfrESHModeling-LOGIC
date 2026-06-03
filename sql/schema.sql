@@ -262,7 +262,7 @@ VALUES (
     'gallery_section_description', 'A glimpse into the campaigns and editorial work produced through the AfrESH Modeling ecosystem.',
     'footer_brand_description', 'Redefining the modeling industry through data-driven talent development and uncompromising standards of elegance.',
     'footer_contact_location', 'Jos, Nigeria',
-    'footer_contact_email', 'afreshmodeling@gmail.com',
+    'footer_contact_email', 'info@afreshmodeling.com',
     'footer_apply_button', 'Apply Now',
     'footer_portfolio_button', 'View Portfolio',
     'footer_contact_button', 'Contact Us',
@@ -271,6 +271,20 @@ VALUES (
   )
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- Correct legacy footer emails without overwriting other admin edits
+UPDATE public.landing_content
+SET content = jsonb_set(
+  content,
+  '{footer_contact_email}',
+  '"info@afreshmodeling.com"'::jsonb,
+  true
+)
+WHERE id = 1
+  AND content->>'footer_contact_email' IN (
+    'afreshmodeling@gmail.com',
+    'freshmodeling@gmail.com'
+  );
 
 COMMENT ON TABLE public.landing_content IS 'Singleton homepage copy; content JSON is edited via admin API.';
 
