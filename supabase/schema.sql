@@ -35,6 +35,9 @@ create table if not exists public.roster (
   updated_at timestamptz default now()
 );
 
+-- Nullable optional column only — existing roster rows are unchanged (social_url stays NULL).
+alter table public.roster add column if not exists social_url text;
+
 create table if not exists public.editorial (
   id uuid primary key default gen_random_uuid(),
   title text not null,

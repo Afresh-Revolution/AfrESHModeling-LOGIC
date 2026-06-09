@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS public.roster (
   category text NOT NULL,
   image_url text NOT NULL,
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
+  social_url text,
   sort_order integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -57,6 +58,13 @@ UPDATE public.roster SET image_urls = '[]'::jsonb WHERE image_urls IS NULL;
 ALTER TABLE public.roster ALTER COLUMN image_urls SET NOT NULL;
 
 COMMENT ON COLUMN public.roster.image_urls IS 'JSON array of image HTTPS URLs; image_url mirrors the first entry.';
+
+-- Optional profile link. Safe on live DBs: ADD COLUMN only; no UPDATE/DELETE/TRUNCATE on roster.
+-- Existing rows keep all current values; social_url is NULL until an admin saves a link.
+ALTER TABLE public.roster ADD COLUMN IF NOT EXISTS social_url text;
+
+COMMENT ON COLUMN public.roster.social_url IS
+  'Optional HTTPS profile link (e.g. Instagram) shown under the model card on the public site.';
 
 CREATE TABLE IF NOT EXISTS public.editorial (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,12 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { getPool } from "../db.js";
+import { ensureRosterSocialUrlColumn, rosterReturnColumns } from "../lib/rosterDb.js";
 
 export async function registerPublicContentRoutes(fastify: FastifyInstance) {
   fastify.get("/roster", async (_request, reply) => {
     try {
       const pool = getPool();
+      await ensureRosterSocialUrlColumn(pool);
       const { rows } = await pool.query(
-        `SELECT id::text, name, category, image_url, sort_order
+        `SELECT ${rosterReturnColumns}
          FROM roster
          ORDER BY sort_order ASC NULLS LAST, name ASC`
       );

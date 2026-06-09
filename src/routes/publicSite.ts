@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { getPool } from "../db.js";
 import { loadLandingContentRow } from "../lib/landingContentStore.js";
+import { ensureRosterSocialUrlColumn, rosterReturnColumns } from "../lib/rosterDb.js";
 
 /**
  * Read-only JSON for the Next.js marketing site (same shape as legacy `/api/editorial` + `/api/roster`).
@@ -31,8 +32,9 @@ export async function registerPublicSiteRoutes(fastify: FastifyInstance) {
     async (_request, reply) => {
       try {
         const pool = getPool();
+        await ensureRosterSocialUrlColumn(pool);
         const { rows } = await pool.query(
-          `SELECT id::text, name, category, image_url, image_urls, sort_order
+          `SELECT ${rosterReturnColumns}
            FROM roster
            ORDER BY sort_order ASC NULLS LAST, name ASC`
         );
